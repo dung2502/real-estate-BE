@@ -5,11 +5,13 @@ namespace App\Http\Controllers;
 use App\Http\Requests\PropertyStoreRequest;
 use App\Http\Requests\PropertyUpdateRequest;
 use App\Http\Resources\PropertyResource;
+use App\Http\Resources\PropertyResourceFor1Room;
 use App\Models\Property;
 use App\Models\PropertyImage;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Cloudinary\Cloudinary;
 
 class PropertyController extends Controller
 {
@@ -56,8 +58,6 @@ class PropertyController extends Controller
     public function store(PropertyStoreRequest $request)
     {
         $validated = $request->validated();
-
-        // Nếu bạn có auth user → gán created_by/updated_by
         if ($request->user()) {
             $validated['created_by'] = $request->user()->id;
             $validated['updated_by'] = $request->user()->id;
@@ -68,13 +68,23 @@ class PropertyController extends Controller
             $property = Property::create($validated);
 
             if ($request->hasFile('images')) {
+                $cloudinary = new Cloudinary(getenv('CLOUDINARY_URL'));
+
                 foreach ($request->file('images') as $idx => $file) {
-                    $path = $file->store('properties', 'public');
+                    $uploadResult = $cloudinary->uploadApi()->upload(
+                        $file->getRealPath(),
+                        [
+                            'folder' => 'properties',
+                            'public_id' => pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME),
+                            'overwrite' => true
+                        ]
+                    );
+
                     PropertyImage::create([
                         'property_id' => $property->id,
-                        'image_path'  => '/storage/' . $path,
+                        'image_path'  => $uploadResult['secure_url'],
                         'image_name'  => $file->getClientOriginalName(),
-                        'is_primary'  => $idx === 0, // đánh ảnh đầu là ảnh chính
+                        'is_primary'  => $idx === 0,
                         'sort_order'  => $idx,
                     ]);
                 }
@@ -83,43 +93,59 @@ class PropertyController extends Controller
             DB::commit();
             return response()->json([
                 'message' => 'Property created successfully',
-                'data'    => (new PropertyResource($property->load('images'))),
+                'data'    => (new PropertyResource($property->load('images')))
             ], 201);
+
         } catch (\Throwable $e) {
             DB::rollBack();
-            return response()->json(['message' => 'Create failed', 'error' => $e->getMessage()], 500);
+            return response()->json([
+                'message' => 'Create failed',
+                'error'   => $e->getMessage()
+            ], 500);
         }
     }
-
     public function show($id)
     {
         $property = Property::with(['images' => function ($q) {
             $q->orderByDesc('is_primary')->orderBy('sort_order');
         }])->findOrFail($id);
 
-        return (new PropertyResource($property))->response();
+        return response()->json(new PropertyResource($property));
     }
 
-    public function update(PropertyUpdateRequest $request, $id)
+   public function update(PropertyUpdateRequest $request, $id)
     {
         $property = Property::findOrFail($id);
         $validated = $request->validated();
+
         if ($request->user()) {
             $validated['updated_by'] = $request->user()->id;
         }
 
         DB::beginTransaction();
         try {
+            // Cập nhật thông tin property
             $property->update($validated);
 
-            // upload thêm ảnh (nếu có)
+            // Upload thêm ảnh mới lên Cloudinary (nếu có)
             if ($request->hasFile('images')) {
+                $cloudinary = new Cloudinary(getenv('CLOUDINARY_URL'));
+
                 $startOrder = (int) ($property->images()->max('sort_order') ?? 0) + 1;
+
                 foreach ($request->file('images') as $i => $file) {
-                    $path = $file->store('properties', 'public');
+                    $uploadResult = $cloudinary->uploadApi()->upload(
+                        $file->getRealPath(),
+                        [
+                            'folder'     => 'properties',
+                            'public_id'  => pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME),
+                            'overwrite'  => true
+                        ]
+                    );
+
                     PropertyImage::create([
                         'property_id' => $property->id,
-                        'image_path'  => '/storage/' . $path,
+                        'image_path'  => $uploadResult['secure_url'],
                         'image_name'  => $file->getClientOriginalName(),
                         'is_primary'  => false,
                         'sort_order'  => $startOrder + $i,
@@ -128,10 +154,17 @@ class PropertyController extends Controller
             }
 
             DB::commit();
-            return response()->json(['message' => 'Property updated successfully']);
+            return response()->json([
+                'message' => 'Property updated successfully',
+                'data'    => (new PropertyResource($property->load('images')))
+            ]);
+
         } catch (\Throwable $e) {
             DB::rollBack();
-            return response()->json(['message' => 'Update failed', 'error' => $e->getMessage()], 500);
+            return response()->json([
+                'message' => 'Update failed',
+                'error'   => $e->getMessage()
+            ], 500);
         }
     }
 
@@ -148,4 +181,18 @@ class PropertyController extends Controller
         $property->restore();
         return response()->json(['message' => 'Property restored successfully']);
     }
+
+    public function getImagesByPropertyId($id)
+    {
+        $images = PropertyImage::where('property_id', $id)->get()->map(function ($image) {
+            return $image;
+        });
+
+        return response()->json([
+            'property_id' => $id,
+            'images' => $images
+        ]);
+    }
+
+
 }

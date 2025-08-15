@@ -8,7 +8,7 @@ class PropertyResource extends JsonResource
 {
     public function toArray($request): array
     {
-        return [
+       return [
             'id'            => $this->id,
             'title'         => $this->title,
             'description'   => $this->description,
