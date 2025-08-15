@@ -42,7 +42,7 @@ class PropertyController extends Controller
         }
         $order = strtolower($order) === 'asc' ? 'asc' : 'desc';
         $query->orderBy($sort, $order);
-        $perPage = (int) $request->input('per_page', 10);
+        $perPage = (int) $request->input('per_page', 3);
         $paginator = $query->paginate($perPage)->appends($request->query());
         return response()->json([
             'data' => PropertyResource::collection($paginator->items()),
