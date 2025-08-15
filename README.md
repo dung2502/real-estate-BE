@@ -14,7 +14,6 @@ Dự án này là backend API viết bằng [Laravel](https://laravel.com/) cho 
 - **PHP**: >= 8.1
 - **Composer**: >= 2.x
 - **MySQL**: >= 5.7 hoặc MariaDB tương đương
-- **Node.js** (chỉ cần nếu dùng Laravel Mix / Vite cho frontend trong Laravel)
 - **Git** (để clone dự án)
 - **Laravel**: 10.x (tự cài qua Composer)
 
